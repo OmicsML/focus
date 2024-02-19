@@ -61,6 +61,7 @@ class KNN_Radius_Graph(object):
         """
         return sorted(self.dataset['gene'].unique().tolist())
         
+    @property
     def edge_index(self) -> np.array:
         """
            Find the edge index of the graph of a selected cell.
@@ -95,26 +96,30 @@ class KNN_Radius_Graph(object):
         edge_index = np.array([rows, cols])
         return edge_index
     
-    def node_label(self):
+    @property
+    def node_label(self) -> np.array:
         """
             Node label: transcript label: subcellular domains
         """
         return np.array(self.selected_cell_data[self.transcript_label])
     
-    def node_type(self):
+    @property
+    def node_type(self) -> np.array:
         """
             Node type: transcript type: Gene name
         """
         return np.array(self.selected_cell_data[self.gene_column])
     
-    def node_spatial(self):
+    @property
+    def node_spatial(self) -> np.array:
         if self.is_3D is True:
             return np.array(self.selected_cell_data[['x', 'y', 'z']]).T
         else:
             return np.array(self.selected_cell_data[['x', 'y']]).T
     
     # for cortex_svz_seqfish+ data
-    def graph_label(self):
+    @property
+    def graph_label(self) -> np.array:
         # return self.selected_cell_data[self.selected_cell_data['cell'] == self.cell_ID]['cell_louvain'].unique()[0]
         return self.selected_cell_data[self.selected_cell_data['cell_ID'] == self.cell_ID]['cell_type'].unique()[0]
         

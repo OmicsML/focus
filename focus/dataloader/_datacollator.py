@@ -28,3 +28,8 @@ class DataCollatorForGraphClassification:
         r"""Merge a list of samples to form a mini-batch."""
         batch = torch.stack(batch, dim=0)
         return {'batch': batch}
+    
+def collator_for_graph_classification(batch: List[torch.Tensor]) -> Dict[str, torch.Tensor]:
+    r"""Merge a list of samples to form a mini-batch."""
+    pass
+    

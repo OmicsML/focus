@@ -32,13 +32,13 @@ from ..module.utils import element_wise_multiplication, subgraph2inter_edge_tens
 
 class ViewGenerator_subgraph_based_one(VGAE):
     def __init__(self, 
-                 num_features,
-                 dim,
-                 encoder_s,
+                 view_graph_num_features,
+                 view_graph_dim,
+                 view_graph_encoder_s,
                  add_mask=False,
                  args=None):
         self.add_mask = add_mask
-        subgraph_encoder = encoder_s(num_features, dim, self.add_mask, 'subgraph_based_one', args)
+        subgraph_encoder = view_graph_encoder_s(view_graph_num_features, view_graph_dim, self.add_mask, 'subgraph_based_one', args)
         super().__init__(encoder=subgraph_encoder)
         
         self.subgraph_encoder = subgraph_encoder

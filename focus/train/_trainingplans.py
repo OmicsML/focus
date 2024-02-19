@@ -3,6 +3,7 @@ from itertools import chain
 from typing import Any, Callable, Dict, Iterable, List, Literal, Optional, Union
 import copy
 import numpy as np
+import re
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
@@ -12,10 +13,18 @@ from pytorch_lightning.strategies.ddp import DDPStrategy
 from torch.optim.lr_scheduler import CosineAnnealingLR, ReduceLROnPlateau, StepLR
 from torchmetrics import AUROC, Accuracy, F1Score, Precision, Recall
 
+from model.losses import loss_cl
+
 TorchOptimizerCreator = Callable[[Iterable[torch.Tensor]], torch.optim.Optimizer]
 
 from ..module.base import BaseModuleClass
 from ..utils.utils import *
+from ..module.nets._resgcn import ResGCN
+from ..module.nets._gat import GAT
+from ..module.nets._denseginconv import DenseGINConv
+
+from ..model.view_generator import ViewGenerator_subgraph_based_one
+from ..model.graph_encoder import GIN_MLP_Encoder
 
 class TunableMeta(type):
     """Metaclass for Tunable class."""
@@ -79,11 +88,11 @@ class ViewGraphGeneratorTrainingPlan(pl.LightningModule):
         
     def validation_step(self, batch, batch_idx):
         """Validation step for the model."""
-        pass
+        out = self.forward(batch)
     
     def test_step(self, batch):
         """Test step for the model."""
-        pass
+        out = self.forward(batch)
     
     def configure_optimizers(self):
         """Configure optimizers for the model."""
@@ -99,6 +108,9 @@ class ViewGraphGeneratorTrainingPlan(pl.LightningModule):
     
     def forward(self, batch, **kwargs):
         """Forward pass for the model."""
+        # TODO: check 
+        requires_grad = True
+        
         data = copy.deepcopy(batch)
         x, edge_index, edge_attr = data.x, data.edge_index, data.edge_attr
         
@@ -169,8 +181,8 @@ class ViewGraphGeneratorTrainingPlan(pl.LightningModule):
         
 
         
-class GNNTrainingPlan(pl.LightningModule):
-    """LightningModule for training a GNN model.
+class FocusTrainingPlan(pl.LightningModule):
+    """LightningModule for training a Focus model. Subcellular Graph
 
     Args:
         pl (_type_): _description_
@@ -183,6 +195,12 @@ class GNNTrainingPlan(pl.LightningModule):
     """
     def __init__(
         self,
+        # parameters for view graph generator
+        view_graph_num_features: Tunable[int] = 64,
+        view_graph_dim: Tunable[int] = 64,
+        view_graph_encoder_s: Tunable[nn.Module] = GIN_MLP_Encoder,
+        add_mask: Tunable[bool] = False,
+        # parameters for gnn model
         optimizer: Tunable[Literal["Adam", "AdamW", "Custom"]] = "Adam",
         optimizer_creator: Optional[TorchOptimizerCreator] = None,
         lr: Tunable[float] = 1e-3,
@@ -196,8 +214,20 @@ class GNNTrainingPlan(pl.LightningModule):
         dropout: Tunable[float] = 0.5,
         edge_norm: Tunable[bool] = True,
         hidden: Tunable[int] = 64,
+        
+        # loss parameters
+        lamb: Tunable[float] = 0.5,
+        # others 
+        args: Optional[Dict[str, Any]] = None,
     ):
         super().__init__()
+        
+        # parameters for view graph generator
+        self.view_graph_num_features = view_graph_num_features
+        self.view_graph_dim =view_graph_dim
+        self.view_graph_encoder_s = view_graph_encoder_s
+        # parameters for gnn model
+        
         self.optimizer = optimizer
         self.optimizer_creator = optimizer_creator
         self.lr = lr
@@ -212,21 +242,81 @@ class GNNTrainingPlan(pl.LightningModule):
         self.edge_norm = edge_norm
         self.hidden = hidden
         
+        # loss parameters 
+        # \lambda to balance the contrastive loss and classification loss
+        self.lamb = lamb
         
         
+        self.ViewGraphGenerator = ViewGenerator_subgraph_based_one(
+            view_graph_num_features= self.view_graph_num_features,
+            view_graph_dim = self.hidden_dim,
+            view_graph_encoder_s = self.encoder_s,
+            add_mask = self.add_mask,
+            args=args #TODO: check if this is necessary
+        )
+        
+        
+    
+    # GNN config
+    def get_model_with_configs(self, dataset):
+        if self.model_name == "ResGCN":
+            return ResGCN(dataset, 
+                          hidden_dim=self.hidden, 
+                          n_layers_feat=self.n_layers_feat, 
+                          n_layers_conv=self.n_layers_conv, 
+                          n_layers_fc=self.n_layers_fc, 
+                          skip_connection=self.skip_connection, 
+                          res_branch=self.res_branch, 
+                          global_pooling=self.global_pooling, 
+                          dropout=self.dropout, 
+                          edge_norm=self.edge_norm)
+        elif self.model_name == "DenseGIN":
+            return DenseGINConv(dataset, 
+                       hidden_dim=self.hidden, 
+                       n_layers_feat=self.n_layers_feat, 
+                       n_layers_conv=self.n_layers_conv, 
+                       n_layers_fc=self.n_layers_fc, 
+                       skip_connection=self.skip_connection, 
+                       res_branch=self.res_branch, 
+                       global_pooling=self.global_pooling, 
+                       dropout=self.dropout, 
+                       edge_norm=self.edge_norm)
+        elif self.model_name == "GAT":
+            return GAT(dataset, 
+                       hidden_dim=self.hidden, 
+                       n_layers_feat=self.n_layers_feat, 
+                       n_layers_conv=self.n_layers_conv, 
+                       n_layers_fc=self.n_layers_fc, 
+                       skip_connection=self.skip_connection, 
+                       res_branch=self.res_branch, 
+                       global_pooling=self.global_pooling, 
+                       dropout=self.dropout, 
+                       edge_norm=self.edge_norm)
+        else:
+            raise ValueError(f"Unknown model {self.model_name}")
+            
         
         
     def training_step(self, batch, batch_idx):
         """Training step for the model."""
-        outputs = self.forward(batch)
+        re = self.forward(batch)
+        self.log("train_loss",re["loss"],on_epoch=True,prog_bar=True)
+        return re["loss"]
         
     def validation_step(self, batch, batch_idx):
         """Validation step for the model."""
-        pass
+        re = self.forward(batch)
+        return re
     
     def test_step(self, batch):
         """Test step for the model."""
-        pass
+        re = self.forward(batch)
+        return re
+        
+    def optimizer_creator(self, parameters):
+        # TODO: check if this is necessary
+        pass 
+    
     
     def configure_optimizers(self):
         """Configure optimizers for the model."""
@@ -242,116 +332,43 @@ class GNNTrainingPlan(pl.LightningModule):
     
     def forward(self, batch, **kwargs):
         """Forward pass for the model."""
-        pass
+        
+        # batch data is from the view graph generator
+        view_graph_1 = self.ViewGraphGenerator(batch)
+        view_graph_2 = self.ViewGraphGenerator(batch)
+        
+        GNN = self.get_model_with_configs(batch)
+        GNN_view_graph_1 = GNN(view_graph_1)
+        GNN_view_graph_2 = GNN(view_graph_2)
+        GNN_raw_graph = GNN(batch)
+        
+        # for contrastive loss
+        contrastive_loss = loss_cl(GNN_view_graph_1, GNN_view_graph_2)
+        
+        # for classification loss
+        loss_raw_graph = F.nll_loss(GNN_raw_graph, batch.y)
+        loss_view_1 = F.nll_loss(GNN_view_graph_1, batch.y)
+        loss_view_2 = F.nll_loss(GNN_view_graph_2, batch.y)
+        
+        classification_loss = (loss_raw_graph + loss_view_1 + loss_view_2)/3
+        
+        # total loss for the model
+        loss = self.lamb * contrastive_loss + (1 - self.lamb) * classification_loss
+        
+        return {"total_loss": loss, "contrastive_loss": contrastive_loss, "classification_loss": classification_loss}
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
 
 
 
-
-class FocusTrainingPlan(pl.LightningModule):
-    """LightningModule for training a focus model.
-
-
-
-
-
-#     Args:
-#         pl (_type_): _description_
-#     """
-#     def __init__(self, 
-#                  module_list:  List[BaseModuleClass],
-#                  optimizer: Tunable[Literal["Adam", "AdamW", "Custom"]] = "Adam",
-#                  optimizer_creator: Optional[TorchOptimizerCreator] = None,
-#                  lr: Tunable[float] = 1e-3,
-#                  weight_decay: Tunable[float] = 1e-6,
-#                  eps: Tunable[float] = 0.01,
-#                  lr_scheduler: Literal[None, "step", "cosine", "plateau"] = None,
-#                  lr_factor: Tunable[float] = 0.6,
-#                  lr_patience: Tunable[int] = 30,
-#                  lr_threshold: Tunable[float] = 0.0,
-#                  lr_scheduler_metric: Literal["reconstruction_loss_validation"] = "reconstruction_loss_validation",
-#                  lr_min: Tunable[float] = 0,
-#                  lr_decay_steps: Tunable[int] = 0,
-#                  lr_decay_rate: Tunable[float] = 0.1,
-#                  lr_decay_min_lr: Tunable[float] = 0,
-#                  lr_decay_iters: Tunable[int] = 100000,
-#                  custom_decay_lr: bool = False,
-#                  warmup_iters: int = 10000,
-#                  loss_kwargs: dict = {},
-#                  **kwargs):
-#         super().__init__()
-#         self.module_list = module_list
-#         self.add_module("module_list", module_list)
-#         self.optimizer = optimizer
-#         self.optimizer_creator = optimizer_creator
-#         self.lr = lr
-#         self.weight_decay = weight_decay
-#         self.eps = eps
-#         self.lr_scheduler = lr_scheduler
-#         self.lr_factor = lr_factor
-#         self.lr_patience = lr_patience
-#         self.lr_threshold = lr_threshold
-#         self.lr_scheduler_metric = lr_scheduler_metric
-#         self.lr_min = lr_min
-#         self.lr_decay_steps = lr_decay_steps
-#         self.lr_decay_rate = lr_decay_rate
-#         self.lr_decay_min_lr = lr_decay_min_lr
-#         self.lr_decay_iters = lr_decay_iters
-#         self.custom_decay_lr = custom_decay_lr
-#         self.warmup_iters = warmup_iters
-#         self.loss_kwargs = loss_kwargs
-#         # self.save_hyperparameters()
-#         self.ViewGraphGenerator = module_list[0]
-#         self.GNN = module_list[1]
-        
-        
-        
-        
-        
-#     @property
-#     def use_sync_dist(self):
-#         return isinstance(self.trainer.strategy, DDPStrategy)
-    
-#     def training_step(self, batch, batch_idx):
-#         """Training step for the model."""
-#         outputs = self.forward(batch, compute_loss=True)
-        
-#         #TODO: implement loss computation
-#         # return {'loss': loss}
-#         pass 
-        
-    
-#     def validation_step(self, batch, batch_idx):
-#         """Validation step for the model."""
-        
-    
-#     def test_step(self, batch):
-#         """Test step for the model."""
-#         pass
-    
-#     def configure_optimizers(self):
-#         """Configure optimizers for the model."""
-#         # view graph generator optimizer
-#         if self.optimizer == "Adam":
-#             optimizer = torch.optim.Adam(self.ViewGraphGenerator.parameters(), lr=self.lr, weight_decay=self.weight_decay, eps=self.eps)
-#         elif self.optimizer == "AdamW":
-#             optimizer = torch.optim.AdamW(self.ViewGraphGenerator.parameters(), lr=self.lr, weight_decay=self.weight_decay, eps=self.eps)
-#         elif self.optimizer == "Custom":
-#             optimizer = self.optimizer_creator(self.ViewGraphGenerator.parameters())
-#         else:
-#             raise ValueError(f"Unknown optimizer {self.optimizer}")
-    
-#     def configure_schedulers(self):
-#         """Configure schedulers for the model."""
-#         pass
-    
-#     def forward(self, batch, **kwargs):
-#         """Forward pass for the model."""
-#         # TODO: implement forward pass and loss computation
-#         augmented_data1 = self.ViewGraphGenerator(batch)
-#         augmented_data2 = self.ViewGraphGenerator(batch)
-
-        
-        
-    
-    
-        

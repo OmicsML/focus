@@ -47,3 +47,22 @@ def load_dataset_from_disk(
         dataset.pre_transform = pre_transform
     if pre_filter is not None:
         dataset.pre_filter
+        
+def unique_list_mapping_to_one_hot(unique_list: List, target_list: List)-> np.array:
+    """\
+        Convert a list of Unique list to one hot vector.
+    """
+    unique_elements = sorted(set(unique_list))
+    element_to_index = {element: index for index, element in enumerate(unique_elements)}
+    
+    one_hot_encodings = []
+    for target_element in target_list:
+        if target_element not in element_to_index:
+            raise ValueError("Target element not found in unique list.")
+        
+        one_hot_vector = [0] * len(unique_elements)
+        target_index = element_to_index[target_element]
+        one_hot_vector[target_index] = 1
+        one_hot_encodings.append(one_hot_vector)
+    
+    return np.array(one_hot_encodings)
