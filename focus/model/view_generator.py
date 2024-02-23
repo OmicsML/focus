@@ -3,20 +3,13 @@ import logging
 import math
 import os 
 from typing import (
-    Any,
-    Dict,
-    Iterable,
-    Literal, 
-    Mapping,
-    Optional,
-    Sequence,
-    Tuple,
-    Union,
+    Any, Dict, Iterable, Literal, Mapping, Optional, Sequence, Tuple, Union,
 )
 import copy
 import numpy as np
 import pandas as pd
 import torch
+import torch.nn as nn
 import torch.distributed as dist
 import torch.nn.functional as F
 import umap
@@ -30,7 +23,9 @@ from torch_geometric.utils import to_undirected, add_self_loops, remove_self_loo
 from ..module.utils import element_wise_multiplication, subgraph2inter_edge_tensor2, subgraph2node_tensor, save_file_with_unique_name, \
     subgraph2intra_edge_tensor, subgraph2inter_edge_tensor, shuffle_sub_edge
 
-class ViewGenerator_subgraph_based_one(VGAE):
+from ..model.graph_encoder import GIN_MLP_Encoder
+
+class ViewGenerator_subgraph_based_pipeline(VGAE):
     def __init__(self, 
                  view_graph_num_features,
                  view_graph_dim,
@@ -175,7 +170,6 @@ class ViewGenerator_subgraph_based_one(VGAE):
         
         return keep_mask.clone().detach().to(dtype=torch.long), drop_sample#, torch.sparse_coo_tensor((data.num_nodes, data.num_nodes)).to(x.device)
 
-
     def save_node(self, batch_splits, aug_type):
         for graph in batch_splits:
             # (edge_mask, '{}/one_graph_mask/{}_{}.mat'.format(save_path, dataset_name, idx))
@@ -295,3 +289,60 @@ class ViewGenerator_subgraph_based_one(VGAE):
         return data, (adj, sample, drop_node_sample, mask_node_sample)
 
 
+class ViewGenerator_subgraph_based_one(nn.Module):
+    def __init__(self, 
+                 view_graph_num_features,
+                 view_graph_dim,
+                 encoder_s: nn.Module = GIN_MLP_Encoder,
+                 setting: Literal['node','edge','subgraph_based_one'] = 'subgraph_based_one',
+                 args=None):
+        view_graph_encoder = encoder_s(num_features=view_graph_num_features, 
+                                       dim = view_graph_dim, 
+                                       setting = setting,
+                                       args = args)
+        super().__init__(encoder=view_graph_encoder)
+        self.view_graph_encoder = view_graph_encoder
+        self.args = args
+        self.setting = setting
+    
+    
+    @staticmethod
+    def node_setting(x, edge_index): # mask 
+        def node_mask(self, x, edge_index):
+            sample = F.gumbel_softmax(x, hard=True)
+            sample_score = sample[:,0]
+            
+            drop_node_mask = torch.rand(sample_score.size(0), device=sample_score.device) <= 0.1
+            mask = sample_score * drop_node_mask.float() * x[:, 0]
+            
+            keep_mask = 1 - mask
+            x = x * keep_mask.view(-1, 1)
+            return x, edge_index
+        
+        return node_mask(x, edge_index)
+    
+    @staticmethod
+    def edge_setting(data):
+        x, edge_index = data.x, data.edge_index
+        # edge_dropping or edge perturbation
+        # sample = F.gumbel_softmax(x, hard=True)
+        pass
+        
+        
+        
+            
+        
+    def forward(self, data_in, requires_grad):
+        data = copy.deepcopy(data_in)
+        x, edge_index = data.x, data.edge_index
+
+        data.x = data.x.float()
+        x = x.float()
+        x.requires_grad = requires_grad
+        
+        if self.setting == "node":
+            return self.node_setting(x, edge_index)
+        elif self.setting == "edge":
+            return self.edge_setting(data)
+        else:
+            raise ValueError("setting should be node or edge")

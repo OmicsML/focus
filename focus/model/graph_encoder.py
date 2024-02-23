@@ -3,16 +3,8 @@ import logging
 import math
 import os 
 from typing import (
-    Any,
-    Dict,
-    Iterable,
-    Literal, 
-    Mapping,
-    Optional,
-    Sequence,
-    Tuple,
-    Union,
-)
+    Any, Dict, Iterable, Literal, Mapping, Optional, Sequence, Tuple, Union
+    )
 import copy
 import numpy as np
 import pandas as pd
@@ -36,7 +28,6 @@ class GIN_MLP_Encoder(nn.Module):
             self, 
             num_features: int,
             dim: int,
-            add_mask: bool = False,
             setting = None,
             *args
             ):
@@ -121,7 +112,7 @@ class GIN_MLP_Encoder(nn.Module):
         elif self.setting == 'subgraph':
             subsplit = process_subbatch(data.subsplit, data.subsplit_cnt, data.ptr)
             x = global_add_pool(x, batch=subsplit)
-            x = self.fc(x)
+            x = self.fc(x) # 6
             return x, subsplit
         elif self.setting == 'intra_edge':
             keep_edge_idx = torch.nonzero(data.intra_edge_mask, as_tuple=False).view(-1,) 
@@ -135,8 +126,8 @@ class GIN_MLP_Encoder(nn.Module):
             # negtive sampling
             subsplit = process_subbatch(data.subsplit, data.subsplit_cnt, data.ptr)
             # num_neg_samples=int((data.edge_index.size(1)*self.percent)//(len(data.ptr)-1))
-            negtive_edge = batched_negative_sampling(data.edge_index, data.batch)#, num_neg_samples=num_neg_samples)
-            neg_intra_edge, _ = edge_to_intra_inter(negtive_edge, subsplit)
+            negative_edge = batched_negative_sampling(data.edge_index, data.batch)#, num_neg_samples=num_neg_samples)
+            neg_intra_edge, _ = edge_to_intra_inter(negative_edge, subsplit)
             edge_mask = torch.rand(neg_intra_edge.size(1), device=neg_intra_edge.device) <= self.percent
             neg_intra_edge = neg_intra_edge[:, edge_mask]
             edge_index = torch.cat([edge_index, neg_intra_edge], dim=1)
@@ -157,9 +148,9 @@ class GIN_MLP_Encoder(nn.Module):
             other_edges = edge_index[:, ~edge_mask]
             edge_index = edge_index[:, edge_mask]
             
-            # negtive sampling
-            negtive_edge = batched_negative_sampling(data.edge_index, data.batch)
-            _, neg_inter_edge = edge_to_intra_inter(negtive_edge, subsplit)
+            # negative sampling
+            negative_edge = batched_negative_sampling(data.edge_index, data.batch)
+            _, neg_inter_edge = edge_to_intra_inter(negative_edge, subsplit)
             edge_mask = torch.rand(neg_inter_edge.size(1), device=neg_inter_edge.device) <= self.percent
             neg_inter_edge = neg_inter_edge[:, edge_mask]
             edge_index = torch.cat([edge_index, neg_inter_edge], dim=1)
@@ -229,4 +220,5 @@ class GIN_MLP_Encoder(nn.Module):
             inter_edge = torch.cat([node1, node1_sub, node2-node1, node2_sub-node1_sub], dim=1)
             inter_edge = self.inter_edge_fc(inter_edge)
 
-            return sub_select_x, subsplit,node_x, intra_edge, intra_edge_index, other_intra_edges, inter_edge, inter_edge_index, other_inter_edges
+            return sub_select_x, subsplit,node_x, intra_edge, intra_edge_index, other_intra_edges, \
+                inter_edge, inter_edge_index, other_inter_edges

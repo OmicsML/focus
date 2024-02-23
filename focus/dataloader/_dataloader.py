@@ -32,8 +32,6 @@ class FocusDataLoader(pl.LightningDataModule):
                  num_workers: int = 0,
                  pin_memory: bool = True,
                  sampler: Optional[torch.utils.data.Sampler] = None,
-                 dataset_path: Optional[str] = "prepared_dataset.dataset",
-                 dataset_path_val: Optional[str] = None,
                  **kwargs,
                  ):
         super().__init__()

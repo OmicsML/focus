@@ -198,9 +198,10 @@ class FocusTrainingPlan(pl.LightningModule):
         # parameters for view graph generator
         view_graph_num_features: Tunable[int] = 64,
         view_graph_dim: Tunable[int] = 64,
-        view_graph_encoder_s: Tunable[nn.Module] = GIN_MLP_Encoder,
+        view_graph_encoder_s: Tunable[Literal['GIN_MLP_Encoder']] = "GIN_MLP_Encoder",
         add_mask: Tunable[bool] = False,
         # parameters for gnn model
+        n_feat: Tunable[int] = 64, # TODO: check !!!
         optimizer: Tunable[Literal["Adam", "AdamW", "Custom"]] = "Adam",
         optimizer_creator: Optional[TorchOptimizerCreator] = None,
         lr: Tunable[float] = 1e-3,
@@ -214,6 +215,7 @@ class FocusTrainingPlan(pl.LightningModule):
         dropout: Tunable[float] = 0.5,
         edge_norm: Tunable[bool] = True,
         hidden: Tunable[int] = 64,
+        label_num: Tunable[int] = None,
         
         # loss parameters
         lamb: Tunable[float] = 0.5,
@@ -225,9 +227,12 @@ class FocusTrainingPlan(pl.LightningModule):
         # parameters for view graph generator
         self.view_graph_num_features = view_graph_num_features
         self.view_graph_dim =view_graph_dim
-        self.view_graph_encoder_s = view_graph_encoder_s
+        if view_graph_encoder_s == "GIN_MLP_Encoder":
+            self.view_graph_encoder_s = GIN_MLP_Encoder
+        self.add_mask = add_mask
         # parameters for gnn model
         
+        self.n_feat = n_feat
         self.optimizer = optimizer
         self.optimizer_creator = optimizer_creator
         self.lr = lr
@@ -241,6 +246,7 @@ class FocusTrainingPlan(pl.LightningModule):
         self.dropout = dropout
         self.edge_norm = edge_norm
         self.hidden = hidden
+        self.label_num = label_num
         
         # loss parameters 
         # \lambda to balance the contrastive loss and classification loss
@@ -249,18 +255,20 @@ class FocusTrainingPlan(pl.LightningModule):
         
         self.ViewGraphGenerator = ViewGenerator_subgraph_based_one(
             view_graph_num_features= self.view_graph_num_features,
-            view_graph_dim = self.hidden_dim,
-            view_graph_encoder_s = self.encoder_s,
+            view_graph_dim = self.view_graph_dim,
+            view_graph_encoder_s = self.view_graph_encoder_s,
             add_mask = self.add_mask,
-            args=args #TODO: check if this is necessary
+            args=args # TODO: check if this is necessary
         )
+        
+        self.GNN = self.get_model_with_configs()
         
         
     
     # GNN config
-    def get_model_with_configs(self, dataset):
+    def get_model_with_configs(self):
         if self.model_name == "ResGCN":
-            return ResGCN(dataset, 
+            return ResGCN(nfeat=self.n_feat, 
                           hidden_dim=self.hidden, 
                           n_layers_feat=self.n_layers_feat, 
                           n_layers_conv=self.n_layers_conv, 
@@ -269,9 +277,10 @@ class FocusTrainingPlan(pl.LightningModule):
                           res_branch=self.res_branch, 
                           global_pooling=self.global_pooling, 
                           dropout=self.dropout, 
-                          edge_norm=self.edge_norm)
-        elif self.model_name == "DenseGIN":
-            return DenseGINConv(dataset, 
+                          edge_norm=self.edge_norm,
+                          label_num=self.label_num)
+        elif self.model_name == "DenseGIN": # rewrite the class 
+            return DenseGINConv(nfeat = self.n_feat, 
                        hidden_dim=self.hidden, 
                        n_layers_feat=self.n_layers_feat, 
                        n_layers_conv=self.n_layers_conv, 
@@ -280,9 +289,10 @@ class FocusTrainingPlan(pl.LightningModule):
                        res_branch=self.res_branch, 
                        global_pooling=self.global_pooling, 
                        dropout=self.dropout, 
-                       edge_norm=self.edge_norm)
+                       edge_norm=self.edge_norm,
+                       label_num=self.label_num)
         elif self.model_name == "GAT":
-            return GAT(dataset, 
+            return GAT(nfeat=self.n_feat, 
                        hidden_dim=self.hidden, 
                        n_layers_feat=self.n_layers_feat, 
                        n_layers_conv=self.n_layers_conv, 
@@ -291,7 +301,8 @@ class FocusTrainingPlan(pl.LightningModule):
                        res_branch=self.res_branch, 
                        global_pooling=self.global_pooling, 
                        dropout=self.dropout, 
-                       edge_norm=self.edge_norm)
+                       edge_norm=self.edge_norm,
+                       label_num=self.label_num)
         else:
             raise ValueError(f"Unknown model {self.model_name}")
             
@@ -337,10 +348,9 @@ class FocusTrainingPlan(pl.LightningModule):
         view_graph_1 = self.ViewGraphGenerator(batch)
         view_graph_2 = self.ViewGraphGenerator(batch)
         
-        GNN = self.get_model_with_configs(batch)
-        GNN_view_graph_1 = GNN(view_graph_1)
-        GNN_view_graph_2 = GNN(view_graph_2)
-        GNN_raw_graph = GNN(batch)
+        GNN_view_graph_1 = self.GNN(view_graph_1)
+        GNN_view_graph_2 = self.GNN(view_graph_2)
+        GNN_raw_graph = self.GNN(batch)
         
         # for contrastive loss
         contrastive_loss = loss_cl(GNN_view_graph_1, GNN_view_graph_2)

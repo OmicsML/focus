@@ -1,3 +1,4 @@
+from typing import List
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -15,10 +16,14 @@ from torch_geometric.nn import global_mean_pool, global_add_pool, GCNConv
 from ._graphconvolution import GraphConvolution
 
 class GCNadj(nn.Module):
-    def __init__(self, dataset, hidden, dropout):
+    def __init__(self, 
+                 nfeat, 
+                 hidden, 
+                 dropout,
+                 label_num: List[int] = None,
+                 ):
         super(GCNadj, self).__init__()
         
-        nfeat = dataset.num_features
         self.gc1 = GraphConvolution(nfeat, hidden)
         self.gc2 = GraphConvolution(hidden, hidden)
         self.dropout = dropout

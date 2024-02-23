@@ -9,7 +9,7 @@ from torch_geometric.nn import global_mean_pool, global_add_pool, GCNConv
 
 class ResGCN(nn.Module):
     def __init__(self, 
-                 dataset: List[Any], 
+                 nfeat: int, 
                  hidden: int, 
                  num_feat_layers: int = 1, 
                  num_conv_layers: int = 3,
@@ -21,6 +21,7 @@ class ResGCN(nn.Module):
                  global_pool: str = "sum", 
                  dropout: int = 0,
                 #  edge_norm: bool = True
+                 label_num: List[int] = None,
                  ):
         super().__init__()
         
@@ -38,17 +39,16 @@ class ResGCN(nn.Module):
 
         # GCNConv = partial(GCNConv, edge_norm=edge_norm, gfn=gfn)
 
-        if "xg" in dataset[0]:  # Utilize graph level features.
-            self.use_xg = True
-            self.bn1_xg = BatchNorm1d(dataset[0].xg.size(1))
-            self.lin1_xg = Linear(dataset[0].xg.size(1), hidden)
-            self.bn2_xg = BatchNorm1d(hidden)
-            self.lin2_xg = Linear(hidden, hidden)
-        else:
-            self.use_xg = False
+        # if "xg" in dataset[0]:  # Utilize graph level features.
+        #     self.use_xg = True
+        #     self.bn1_xg = BatchNorm1d(dataset[0].xg.size(1))
+        #     self.lin1_xg = Linear(dataset[0].xg.size(1), hidden)
+        #     self.bn2_xg = BatchNorm1d(hidden)
+        #     self.lin2_xg = Linear(hidden, hidden)
+        # else:
+        #     self.use_xg = False
 
-        hidden_in = dataset[0].x.shape[-1]
-
+        hidden_in = nfeat
         self.bn_feat = BatchNorm1d(hidden_in)
         feat_gfn = True  # set true so GCNConv is feat transform
         self.conv_feat = GCNConv(hidden_in, hidden)
@@ -80,7 +80,7 @@ class ResGCN(nn.Module):
         for _ in range(num_fc_layers - 1):
             self.bns_fc.append(BatchNorm1d(hidden))
             self.lins.append(Linear(hidden, hidden))
-        label_num = [dataset[i].y for i in range(len(dataset))]
+        # label_num = [dataset[i].y for i in range(len(dataset))]
         num_clasess = max(label_num) + 1
         self.lin_class = Linear(hidden, num_clasess)
 

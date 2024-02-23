@@ -9,7 +9,7 @@ from torch_geometric.nn import global_mean_pool, global_add_pool, GCNConv
 
 class GAT(nn.Module):
     def __init__(self, 
-                 dataset: List[Any],
+                 nfeat: int, 
                  hidden: int,
                  num_feat_layers: int = 1,
                  num_conv_layers: int = 3,
@@ -19,6 +19,7 @@ class GAT(nn.Module):
                  res_branch: str = "BNConvReLU",
                  global_pool: str = "sum",
                  dropout: int = 0,
+                 label_num: List[int] = None,
                  ):
         super().__init__()
         
