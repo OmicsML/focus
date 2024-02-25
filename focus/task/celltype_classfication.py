@@ -34,9 +34,41 @@ if __name__ == "__main__":
     ##################
     # dataset kwargs #
     ##################
+    reference_dataset_kwargs = {
+        # parameters for reference FocusDataset
+        "reference_data_path": "/home/luqiaolin/projects/focus/dataset/kidney_annot_3D_tx_100.csv",
+        "gene_list_txt_path": "/home/luqiaolin/projects/focus/dataset/gene_list.txt",
+        "knn_graph_radius": None,
+        "gene_tx_threshold": 0,
+        "celltype_threshold": 0,
+        "cell_ID_key": "cell_ID",
+        "cell_type_key": "celltype",
+        "gene_key": "gene",
+        "transcript_key": "subcellular_domains",
+        "embedding_key": "one_hot",
+        "subcellular_mapping": {"nucleus": 0, "nucleus edge": 1, "cytoplasm": 2, "cell edge": 3, "none": 4},
+        "celltype_mapping": None,
+    }
+    query_dataset_kwargs = {
+        # parameters for query FocusDataset
+        "query_data_path": "/home/luqiaolin/projects/focus/dataset/kidney_annot_3D_tx_100.csv",
+        "gene_list_txt_path": "/home/luqiaolin/projects/focus/dataset/gene_list.txt",
+        "knn_graph_radius": None,
+        "gene_tx_threshold": 0,
+        "celltype_threshold": 0,
+        "cell_ID_key": "cell_ID",
+        "cell_type_key": "celltype",
+        "gene_key": "gene",
+        "transcript_key": "subcellular_domains",
+        "embedding_key": "one_hot",
+        "subcellular_mapping": {"nucleus": 0, "nucleus edge": 1, "cytoplasm": 2, "cell edge": 3, "none": 4},
+        "celltype_mapping": None,   
+    }
     dataset_kwargs = {
-        "reference_data_path": "",
-        "query_data_path": "",
+        # parameters for FocusDataloader
+        "reference_data_path": reference_dataset_kwargs["reference_data_path"],
+        "query_data_path": query_dataset_kwargs["query_data_path"],
+
         "train_size": 0.8,
         "batch_size": args.batch_size,
         "shuffle": True,

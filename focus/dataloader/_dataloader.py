@@ -4,6 +4,7 @@ from math import ceil, floor
 from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
+import pandas as pd
 import pytorch_lightning as pl
 from pytorch_lightning.utilities.types import TRAIN_DATALOADERS
 import torch
@@ -13,6 +14,13 @@ from tqdm import tqdm
 
 from ._focus_datasets import FocusDataset
 
+CELL_ID_KEY = "cell_ID"
+CELL_TYPE_KEY = "celltype"
+GENE_KEY = "gene"
+TRANSCRIPT_KEY = "subcellular_domains"
+EMBEDDING_KEY = "one_hot"
+SUBCELLULAR_MAPPING = {"nucleus": 0, "nucleus edge": 1, "cytoplasm": 2, "cell edge": 3, "none": 4}
+CELLTYPE_MAPPING = None
 
 class FocusDataLoader(pl.LightningDataModule):
     """\
@@ -50,23 +58,70 @@ class FocusDataLoader(pl.LightningDataModule):
         
         self.data_collator = None # DataCollator in _datacollator.py
         
-        train_dataset = FocusDataset(reference_data_path, **kwargs)
-        test_dataset = FocusDataset(query_data_path, **kwargs)
-        
-        
-        
-    def prepare_data(self):
-        """\
-        Prepare (tokenize) dataset and save it to the disk.
-        This function is called on 1 GPU or CPU.
-        """
-        pass
+        self.reference_data_pd = pd.read_csv(self.reference_data_path, index_col=0)
+        if self.train_size >= 0 and self.train_size <= 1:
+            cell_id_list = list(self.reference_data_pd[CELL_ID_KEY].unique())
+            train_size = floor(len(cell_id_list) * self.train_size)
+            train_cell_id_list = np.random.choice(cell_id_list, train_size, replace=False)
+            val_cell_id_list = list(set(cell_id_list) - set(train_cell_id_list))
+            self.reference_train_pd = self.reference_data_pd[self.reference_data_pd[CELL_ID_KEY].isin(train_cell_id_list)]
+            self.reference_val_pd = self.reference_data_pd[self.reference_data_pd[CELL_ID_KEY].isin(val_cell_id_list)]
+        else:
+            raise ValueError("train_size should be a float between 0 and 1")
+
+        self.query_data_pd = pd.read_csv(self.query_data_path, index_col=0)
+        self.setup()
+    
     
     def setup(self, stage: str | None = None):
         """\
         Load the dataset and split indices in train/test/val sets and load the prepared dataset.
         """
-        pass
+        if stage == "fit" or stage is None:
+            self.train_set = FocusDataset(
+                subcellular_pd=self.reference_train_pd,
+                gene_list_txt_path=self.kwargs["gene_list_txt_path"],
+                knn_graph_radius=self.kwargs["knn_graph_radius"],
+                gene_tx_threshold=self.kwargs["gene_tx_threshold"],
+                celltype_threshold=self.kwargs["celltype_threshold"],
+                cell_ID_key=CELL_ID_KEY,
+                cell_type_key=CELL_TYPE_KEY,
+                gene_key=GENE_KEY,
+                transcript_key=TRANSCRIPT_KEY,
+                embedding_key=EMBEDDING_KEY,
+                subcellular_mapping=SUBCELLULAR_MAPPING,
+                celltype_mapping=CELLTYPE_MAPPING,
+            )
+            self.validation_set = FocusDataset(
+                subcellular_pd=self.reference_val_pd,
+                gene_list_txt_path=self.kwargs["gene_list_txt_path"],
+                knn_graph_radius=self.kwargs["knn_graph_radius"],
+                gene_tx_threshold=self.kwargs["gene_tx_threshold"],
+                celltype_threshold=self.kwargs["celltype_threshold"],
+                cell_ID_key=CELL_ID_KEY,
+                cell_type_key=CELL_TYPE_KEY,
+                gene_key=GENE_KEY,
+                transcript_key=TRANSCRIPT_KEY,
+                embedding_key=EMBEDDING_KEY,
+                subcellular_mapping=SUBCELLULAR_MAPPING,
+                celltype_mapping=CELLTYPE_MAPPING,
+            )
+        if stage == "test" or stage is None:
+            self.test_set = FocusDataset(
+                subcellular_pd=self.query_data_pd,
+                gene_list_txt_path=self.kwargs["gene_list_txt_path"],
+                knn_graph_radius=self.kwargs["knn_graph_radius"],
+                gene_tx_threshold=self.kwargs["gene_tx_threshold"],
+                celltype_threshold=self.kwargs["celltype_threshold"],
+                cell_ID_key=CELL_ID_KEY,
+                cell_type_key=CELL_TYPE_KEY,
+                gene_key=GENE_KEY,
+                transcript_key=TRANSCRIPT_KEY,
+                embedding_key=EMBEDDING_KEY,
+                subcellular_mapping=SUBCELLULAR_MAPPING,
+                celltype_mapping=CELLTYPE_MAPPING,
+            )
+        
     
     def train_dataloader(self):
         """Create train data loader."""
@@ -75,7 +130,6 @@ class FocusDataLoader(pl.LightningDataModule):
                             shuffle=self.shuffle,
                             num_workers=self.num_workers,
                             pin_memory=self.pin_memory,
-                            sampler=self.sampler,
                             collate_fn=self.data_collator)
         
     
@@ -86,7 +140,6 @@ class FocusDataLoader(pl.LightningDataModule):
                             shuffle=self.shuffle,
                             num_workers=self.num_workers,
                             pin_memory=self.pin_memory,
-                            sampler=self.sampler,
                             collate_fn=self.data_collator)
     
     def test_dataloader(self):

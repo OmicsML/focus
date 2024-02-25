@@ -20,12 +20,11 @@ from .utils import unique_list_mapping_to_one_hot
 class FocusDataset(Dataset):
     """Focus dataset generate from csv file"""
     def __init__(self, 
-                 subcellular_csv_path: str,
+                 subcellular_pd: pd.DataFrame,
                  gene_list_txt_path: str,
                  knn_graph_radius: float,
                  gene_tx_threshold: int, 
                  celltype_threshold: float,
-                 split_ratio: float = 0.8,
                  cell_ID_key: str = 'cell_ID',
                  cell_type_key: str = 'celltype',
                  gene_key: str = 'gene',
@@ -35,13 +34,11 @@ class FocusDataset(Dataset):
                      "cytoplasm": 2, "cell edge": 3, "none": 4},
                  celltype_mapping: Dict[str, int] = None,
                  ):
-        # self.subcellular_pd = pd.read_csv(subcellular_csv_path, index_col=0)
-        self.subcellular_csv_path = subcellular_csv_path
+        self.subcellular_pd = subcellular_pd
         self.gene_list_txt_path = gene_list_txt_path
         self.knn_graph_radius = knn_graph_radius
         self.gene_tx_threshold = gene_tx_threshold
         self.celltype_threshold = celltype_threshold
-        self.split_ratio = split_ratio
         self.gene_list = self.read_gene_list(self.gene_list_txt_path)
         
         self.cell_ID_key = cell_ID_key
@@ -65,16 +62,13 @@ class FocusDataset(Dataset):
         f.close()
         return gene_list
     
-    def get_split(self):
-        pass 
-    
     def subcellular_filter(self):
         """
             Filter the subcellular pd.Data based on the cell type threshold
         """
-        subcellular_pd = pd.read_csv(self.subcellular_csv_path, index_col=0)
-        gene_per_cell_value_counts = subcellular_pd[self.cell_ID_key].value_counts()
-        subcellular_pd_filtered = subcellular_pd[subcellular_pd[self.cell_ID_key].\
+        # subcellular_pd = pd.read_csv(self.subcellular_csv_path, index_col=0)
+        gene_per_cell_value_counts = self.subcellular_pd[self.cell_ID_key].value_counts()
+        subcellular_pd_filtered = self.subcellular_pd[self.subcellular_pd[self.cell_ID_key].\
             isin(gene_per_cell_value_counts[gene_per_cell_value_counts > self.gene_tx_threshold])]
         subcellular_pd_filtered = subcellular_pd_filtered[subcellular_pd_filtered\
             [self.gene_key].isin(self.gene_list)]
