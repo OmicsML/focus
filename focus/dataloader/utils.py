@@ -3,6 +3,7 @@ from math import ceil
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 import os.path as osp
+import numpy as np
 import torch 
 
 
@@ -66,3 +67,11 @@ def unique_list_mapping_to_one_hot(unique_list: List, target_list: List)-> np.ar
         one_hot_encodings.append(one_hot_vector)
     
     return np.array(one_hot_encodings)
+
+def read_gene_list(gene_list_txt_path: str) -> List[str]:
+    gene_list = []
+    f = open(gene_list_txt_path, 'r')
+    for line in f:
+        gene_list.append(line.strip())
+    f.close()
+    return gene_list

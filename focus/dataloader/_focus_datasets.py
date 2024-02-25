@@ -1,3 +1,4 @@
+import json
 from math import ceil, floor
 from typing import Callable, Dict, List, Literal, Optional, Sequence, Tuple, Union
 import numpy as np
@@ -7,7 +8,7 @@ import torch
 from torch.utils.data import Dataset
 from torch_geometric.data import Data
 from ..data.preprocess._knn_radius_graph import KNN_Radius_Graph
-from .utils import unique_list_mapping_to_one_hot
+from .utils import unique_list_mapping_to_one_hot, read_gene_list
 
 """
     1. Load the data from the disk
@@ -21,7 +22,7 @@ class FocusDataset(Dataset):
     """Focus dataset generate from csv file"""
     def __init__(self, 
                  subcellular_pd: pd.DataFrame,
-                 gene_list_txt_path: str,
+                 gene_list: List[str], 
                  knn_graph_radius: float,
                  gene_tx_threshold: int, 
                  celltype_threshold: float,
@@ -29,38 +30,35 @@ class FocusDataset(Dataset):
                  cell_type_key: str = 'celltype',
                  gene_key: str = 'gene',
                  transcript_key: str = 'subcellular_domains',
-                 embedding_key: str = 'one_hot',
-                 subcellular_mapping: Dict[str, int] = {"nucleus": 0, "nucleus edge": 1, \
+                 embedding_type: str = 'one_hot',
+                 subcellular_mapping: Union[str, Dict[str, int]]= {"nucleus": 0, "nucleus edge": 1, \
                      "cytoplasm": 2, "cell edge": 3, "none": 4},
-                 celltype_mapping: Dict[str, int] = None,
+                 celltype_mapping: Union[str, Dict[str, int]] = None,
                  ):
         self.subcellular_pd = subcellular_pd
-        self.gene_list_txt_path = gene_list_txt_path
         self.knn_graph_radius = knn_graph_radius
         self.gene_tx_threshold = gene_tx_threshold
         self.celltype_threshold = celltype_threshold
-        self.gene_list = self.read_gene_list(self.gene_list_txt_path)
+        self.gene_list = gene_list
         
         self.cell_ID_key = cell_ID_key
         self.cell_type_key = cell_type_key
         self.gene_key = gene_key
         self.transcript_key = transcript_key
         
-        self.embedding_key = embedding_key # may not be used in the future
+        self.embedding_type = embedding_type # may not be used in the future
         self.subcellular_mapping = subcellular_mapping
-        self.celltype_mapping = celltype_mapping
+        if type(celltype_mapping) == str:
+            # celltype_mapping is a path to a json file
+            self.celltype_mapping = json.load(open(celltype_mapping))
+        elif type(celltype_mapping) == dict:
+            self.celltype_mapping = celltype_mapping
+        else:
+            raise ValueError("celltype_mapping must be a path to a json file or a dictionary.")
         
         self.subcellular_pd_filtered = self.subcellular_filter()
         self.cell_id_list = list(self.subcellular_pd_filtered[self.cell_ID_key].unique())
     
-    @staticmethod
-    def read_gene_list(gene_list_txt_path: str) -> List[str]:
-        gene_list = []
-        f = open(gene_list_txt_path, 'r')
-        for line in f:
-            gene_list.append(line.strip())
-        f.close()
-        return gene_list
     
     def subcellular_filter(self):
         """

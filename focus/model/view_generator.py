@@ -291,24 +291,23 @@ class ViewGenerator_subgraph_based_pipeline(VGAE):
 
 class ViewGenerator_subgraph_based_one(nn.Module):
     def __init__(self, 
-                 view_graph_num_features,
-                 view_graph_dim,
-                 encoder_s: nn.Module = GIN_MLP_Encoder,
+                 view_graph_num_features: Union[int] = None,
+                 view_graph_dim: Union[int] = None,
+                 encoder: Union[nn.Module] = GIN_MLP_Encoder,
                  setting: Literal['node','edge','subgraph_based_one'] = 'subgraph_based_one',
-                 args=None):
-        view_graph_encoder = encoder_s(num_features=view_graph_num_features, 
+                 ):
+        view_graph_encoder = encoder(num_features=view_graph_num_features, 
                                        dim = view_graph_dim, 
                                        setting = setting,
-                                       args = args)
+                                       )
         super().__init__(encoder=view_graph_encoder)
         self.view_graph_encoder = view_graph_encoder
-        self.args = args
         self.setting = setting
     
     
     @staticmethod
     def node_setting(x, edge_index): # mask 
-        def node_mask(self, x, edge_index):
+        def node_mask(x, edge_index):
             sample = F.gumbel_softmax(x, hard=True)
             sample_score = sample[:,0]
             
@@ -327,9 +326,6 @@ class ViewGenerator_subgraph_based_one(nn.Module):
         # edge_dropping or edge perturbation
         # sample = F.gumbel_softmax(x, hard=True)
         pass
-        
-        
-        
             
         
     def forward(self, data_in, requires_grad):

@@ -60,29 +60,51 @@ if __name__ == "__main__":
         "cell_type_key": "celltype",
         "gene_key": "gene",
         "transcript_key": "subcellular_domains",
-        "embedding_key": "one_hot",
+        "embedding_type": "one_hot",
         "subcellular_mapping": {"nucleus": 0, "nucleus edge": 1, "cytoplasm": 2, "cell edge": 3, "none": 4},
-        "celltype_mapping": None,   
+        "celltype_mapping": "/home/luqiaolin/projects/focus/dataset/mapping.json",   
     }
     dataset_kwargs = {
         # parameters for FocusDataloader
-        "reference_data_path": reference_dataset_kwargs["reference_data_path"],
-        "query_data_path": query_dataset_kwargs["query_data_path"],
-
+        "reference_data_kwargs": reference_dataset_kwargs,
+        "query_data_kwargs": query_dataset_kwargs,
         "train_size": 0.8,
         "batch_size": args.batch_size,
         "shuffle": True,
         "use_cuda": False,
         "num_workers": 0,
         "pin_memory": True,
-        "sampler": None,
         # TODO: add more kwargs
     }
     ##################
     # model kwargs #
     ##################
+    view_graph_kwargs = {
+        "n_feat": 100, # TODO: if use one-hot encoding, this should be the number of unique genes
+        "view_graph_dim": 64,
+        "view_graph_encoder_s": "GIN_MLP_Encoder",
+        "add_mask": False,
+    }
+    GNN_kwargs = {
+        "optimizer": "Adam",
+        "optimizer_creator": None,
+        "lr": 0.001,
+        "gnn_net": "ResGCN",
+        "n_layers_fc": 2,
+        "n_layers_feat": 2,
+        "n_layers_conv": 2,
+        "skip_connection": True,
+        "res_branch": True,
+        "global_pooling": True,
+        "dropout": 0.5, 
+        "edge_norm": True,
+        "hidden": 64,
+        "label_num": 10, # TODO: this should be the number of unique celltypes
+        "lamb": 0.5,   
+    }
+    
     model_kwargs = {
-        "view_graph_num_features": 100, # TODO: if use one-hot encoding, this should be the number of unique genes
+        "n_feat": 100, # TODO: if use one-hot encoding, this should be the number of unique genes
         "view_graph_dim": 64,
         "view_graph_encoder_s": "GIN_MLP_Encoder", 
         "add_mask": False,
