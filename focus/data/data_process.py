@@ -7,15 +7,10 @@ import numpy as np
 import torch
 import threading
 from tqdm import tqdm
-import pandas as pd 
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
-import multiprocessing as mp 
-from multiprocessing import Process
-from scipy.spatial import distance_matrix 
-from scipy.spatial import KDTree 
-import networkx as nx 
+from typing import Callable, List, Optional
+import multiprocessing
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from ..utils.utils import unique_list_mapping_to_one_hot, one_graph_splits_nx
+from ..model.utils import unique_list_mapping_to_one_hot, one_graph_splits_nx
 from torch_geometric.data import (
     Data,
     InMemoryDataset,
@@ -131,6 +126,7 @@ class NPY2TorchG(InMemoryDataset):
                 one_hot_encodings = unique_list_mapping_to_one_hot(gene, int2str)
                 num_nodes = len(graph[2])
                 x = torch.tensor(one_hot_encodings, dtype=torch.float)
+                x = torch.argmax(x, dim=1)
                 # transform into edge index
                 edge_index = torch.tensor(graph[1], dtype=torch.long)
                 # node position
@@ -178,114 +174,6 @@ class NPY2TorchG(InMemoryDataset):
         return 'data.pt'
 
 
-class KNN_Radius_Graph(object):
-    def __init__(self, 
-                 radius: float, 
-                 dataset: pd.DataFrame, 
-                 is_3D: bool = False,
-                 cell_ID: str = 'cell_ID',
-                 gene_column: str = 'gene',
-                 transcript_label: str = 'subcellular_domains',
-                 ) -> None:
-        """\
-            KNN radius Graph to find the nearest neighbors of each node in the graph.
-        
-        Args: 
-            radius: the radius of spatial transcript neighbor threshold
-            dataset_name: the name of the dataset
-            is_3D: check the dimension of transcript coordinates
-            cell_ID: cell ID, "31-0"
-            gene_column: "gene" : column name of transcript dataset
-            transcript_label: the label of the transcripts : subcellular domains
-            
-        """    
-        self.radius = radius 
-        self.dataset = dataset
-        self.is_3D = is_3D
-        self.cell_ID = cell_ID
-        self.gene_column = gene_column
-        self.transcript_label = transcript_label
-        self.gene_list = self.gene_list()
-        self.selected_cell_data = self._data_process()
-        
-    def _data_process(self) -> pd.DataFrame:
-        """
-            Find the data of a target cell
-        Args: 
-            dataset: dataset
-            cell_ID: the ID of the target cell
-            
-        Returns:
-            pd.DataFrame: the data of the target cell
-            
-        """
-        return self.dataset[self.dataset['cell_ID'] == self.cell_ID]
-    
-    def gene_list(self) -> List[str]:
-        """
-           Find the gene list of the dataset.
-        
-        Args: 
-            dataset: dataset
-        Returns:
-            gene_list: the list of genes in the dataset
-        """
-        return sorted(self.dataset['gene'].unique().tolist())
-        
-    def edge_index(self) -> np.array:
-        """
-           Find the edge index of the graph of a selected cell.
-        
-        Args:
-            dataset: dataset
-            cell_ID: the ID of the target cell
-            radius: the radius of spatial transcript neighbor threshold  
-        Returns:
-            edge_index: the edge index of the graph of a selected cell
-        """
-        
-        selected_data = self.selected_cell_data
-        if self.is_3D is True:
-            x = np.array(selected_data['x'].to_list())
-            y = np.array(selected_data['y'].to_list())
-            z = np.array(selected_data['z'].to_list())
-            r_c = np.column_stack((x, y, z))
-        else:
-            x = np.array(selected_data['x'].to_list())
-            y = np.array(selected_data['y'].to_list())
-            r_c = np.column_stack((x, y))
-        kdtree = KDTree(r_c)
-        G = nx.Graph()
-        for i, x in enumerate(r_c):
-            idx = kdtree.query_ball_point(x, self.radius)
-            for j in idx:
-                if i < j:
-                    G.add_edge(i, j)
-        adj_matrix = nx.to_numpy_array(G)
-        rows, cols = np.where(adj_matrix == 1)
-        edge_index = np.array([rows, cols])
-        return edge_index
-    
-    def node_label(self):
-        """
-            Node label: transcript label: subcellular domains
-        """
-        return np.array(self.selected_cell_data[self.transcript_label])
-    
-    def node_type(self):
-        """
-            Node type: transcript type: Gene name
-        """
-        return np.array(self.selected_cell_data[self.gene_column])
-    
-    def node_spatial(self):
-        if self.is_3D is True:
-            return np.array(self.selected_cell_data[['x', 'y', 'z']]).T
-        else:
-            return np.array(self.selected_cell_data[['x', 'y']]).T
-    
-    def graph_label(self):
-        return self.selected_cell_data[self.selected_cell_data['cell_ID'] == self.cell_ID]['cell_type'].unique()[0]
 
 
 def subgraph_splits(data_list: List, dataset_name: str,save_path: str, num_threads: int) -> None:
@@ -320,7 +208,11 @@ def subgraph_splits(data_list: List, dataset_name: str,save_path: str, num_threa
                 print(e)
                 raise ValueError("Unknown value: {}".format(e))
 
-    # merfe all graphs into one file    
+
+ 
+    
+    
+    # merge all graphs into one file    
     all_graph_mask_path = os.path.join(save_path, "all_graph_mask")
     all_graph_split_path = os.path.join(save_path, "all_graph_split")
     if not os.path.exists(all_graph_mask_path):
@@ -338,3 +230,72 @@ def subgraph_splits(data_list: List, dataset_name: str,save_path: str, num_threa
         all_graph_split.append(graph_split)
     torch.save(all_graph_mask, '{}/all_graph_mask/{}.mat'.format(save_path, dataset_name))
     torch.save(all_graph_split, '{}/all_graph_split/{}.mat'.format(save_path, dataset_name))    
+    
+
+def return_aug_data(data_path, dataset_name, n_view):
+    # for cosmx data
+    dataset = NPY2TorchG(data_path, dataset_name)
+    dataset = dataset.load()
+
+    node_path = os.path.join(data_path, "draw")
+    subgraph_path = os.path.join(data_path, "draw_subgraph")
+    celltype_mapping = os.path.join(data_path, "processed/mapping.json")
+    node_files = glob.glob(os.path.join(node_path, "*node_drop_{}.pt".format(n_view)))
+    subgraph_files = glob.glob(os.path.join(subgraph_path, "*subgraph_{}.pt".format(n_view)))
+    
+    celltype_mapping = json.load(open(celltype_mapping))
+    num2celltype = {value: key for key, value in celltype_mapping.items()}
+    
+    graph_dict = {}
+    for file in node_files:
+        temporal_data = torch.load(file)
+        temporal_data.y = num2celltype[temporal_data.y.item()]
+        if temporal_data.y not in graph_dict:
+            graph_dict[temporal_data.y] = []
+        graph_dict[temporal_data.y].append(temporal_data) 
+
+    graph_dataset = []
+    for label in graph_dict.keys():
+        graph_list = graph_dict[label]
+        temp_list = []
+        for graph in graph_list:
+            # if np.count_nonzero(graph.importance_score.cpu().detach().numpy()>0) / len(graph.importance_score) > 0.1:
+                temp_list.append(graph)
+        graph_dataset.extend(temp_list)
+    for graph in graph_dataset:
+        varname = graph.y + '_' + graph.name
+        globals()[varname] = graph
+
+    subgraph_dict = {}
+    for file in tqdm(subgraph_files):
+        temporal_data = torch.load(file)
+        if num2celltype[temporal_data.y.item()] not in subgraph_dict:
+            subgraph_dict[num2celltype[temporal_data.y.item()]] = []
+        subgraph_dict[num2celltype[temporal_data.y.item()]].append(temporal_data)    
+    subgraph_dataset = []
+    for label in subgraph_dict.keys():
+        subgraph_list = subgraph_dict[label]
+        temp_list = []
+        for graph in subgraph_list:
+            # if np.count_nonzero(graph.subgraph_score.cpu().detach().numpy()>0) / len(graph.subgraph_score) > 0.1:
+            temp_list.append(graph)
+        subgraph_dataset.extend(temp_list)
+    for graph in subgraph_dataset:
+        varname = num2celltype[graph.y.item()] + '_' + graph.name + '_sub'
+        globals()[varname] = graph
+        
+    subcellular_graph = []
+    for subcellular_cell in tqdm(dataset):
+        varname = subcellular_cell.y + '_' + subcellular_cell.name
+        varname_sub = subcellular_cell.y + '_' + subcellular_cell.name + '_sub'
+        if varname in globals() and varname_sub in globals():
+            subcellular_cell.importance_score = globals()[varname].importance_score
+            subcellular_cell.subgraph_score = globals()[varname_sub].subgraph_score
+            subcellular_graph.append(subcellular_cell)
+    subcelluar_data_dict = {}
+    for data in tqdm(subcellular_graph):
+        if data.y not in subcelluar_data_dict:
+            subcelluar_data_dict[data.y] = []
+        subcelluar_data_dict[data.y].append(data)
+        
+    return subcelluar_data_dict

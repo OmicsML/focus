@@ -1,14 +1,13 @@
 # %%
 import os 
 import sys 
-sys.path.append("/home/luqiaolin/projects/focus/")
 import pandas as pd
 import numpy as np
+import time
 import multiprocessing
 import argparse
-
-from focus.data.process import KNN_Radius_Graph
-os.chdir("/home/luqiaolin/projects/focus/")
+from knn_radius_graph import KNN_Radius_Graph
+from ..data.data_process import NPY2TorchG, subgraph_splits
 
 
 lung_annot_3D_tx = pd.read_csv("./data/CosMx_lung/raw/lung_annot_3D_tx.csv")
@@ -19,19 +18,19 @@ lung_annot_3D_tx.rename(columns={'x_global_px': 'x', 'y_global_px':'y', 'z_local
 def arg_parse():
     parser = argparse.ArgumentParser(description='manual to this script')
     parser.add_argument('--radius', type=int, default=12)
-    parser.add_argument('--cell_num_threshold', type=int, default=10)
+    parser.add_argument('--threshold', type=int, default=10)
     parser.add_argument('--tissue_id', type=int, default=0)
     args = parser.parse_args()
     return args
 gene_list = []
-f = open("./data/CosMx_lung_12/raw/gene.txt", 'r')
+f = open("./data/CosMx_lung_transfer/raw/gene.txt", 'r')
 for gene in f:
     gene_list.append(gene.strip())
 f.close()
 
 args = arg_parse()
 radius = args.radius 
-threshold = args.cell_num_threshold
+threshold = args.threshold
 tissue_id = args.tissue_id
 tissue_id = str(tissue_id)
 
@@ -57,7 +56,7 @@ def calculate_func(cell_id):
     graph_data = np.array(data_list, dtype=object)
     np.save(os.path.join(save_path, f"{cell_id}.npy"), graph_data)
     print(cell_id, "finished")
-cell_id_list = list(lung_annot_3D_tx_filtered['cell_ID'].unique())
+cell_id_list = list(lung_annot_3D_tx_filtered['cell_ID'].unique())[:100000]
 pool = multiprocessing.Pool(processes=100)
 pool.imap_unordered(calculate_func, cell_id_list)
 pool.close()
